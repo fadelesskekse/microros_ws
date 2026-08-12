@@ -1,0 +1,32 @@
+# Ignore everything by default
+/*
+
+# Track this file
+!/.gitignore
+
+# Allow selected firmware paths
+!/firmware/
+/firmware/*
+
+!/firmware/APP
+!/firmware/PLATFORM
+!/firmware/TRANSPORT
+
+# Firmware workspace configuration
+!/firmware/mcu_ws/
+/firmware/mcu_ws/*
+
+!/firmware/mcu_ws/colcon.meta
+!/firmware/mcu_ws/ros2.repos
+
+# Custom interface symlink
+!/firmware/mcu_ws/ros2/
+/firmware/mcu_ws/ros2/*
+!/firmware/mcu_ws/ros2/control_framework_interfaces
+
+# Track custom micro-ROS applications
+!/my_apps/
+/my_apps/*
+
+!/my_apps/controller_hil_emulator/
+!/my_apps/controller_hil_emulator/**
