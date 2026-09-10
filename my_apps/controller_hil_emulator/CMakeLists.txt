@@ -10,6 +10,233 @@ endif()
 include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
 project(microrosapp C CXX)
 
+############For compiling the correct controller_configs############
+set(
+    CONTROL_MODEL
+    ""
+    CACHE STRING
+    "Model whose controller configuration will be compiled"
+)
+
+set(
+    CONTROL_TYPE
+    ""
+    CACHE STRING
+    "Controller type whose configuration will be compiled"
+)
+
+set(
+    CONTROLLER_CONFIG_ROOT
+    ""
+    CACHE PATH
+    "Root directory containing generated controller configurations"
+)
+
+if(CONTROL_MODEL STREQUAL "")
+    message(FATAL_ERROR
+        "CONTROL_MODEL was not provided. "
+        "Pass -DCONTROL_MODEL=<model> to build_firmware.sh."
+    )
+endif()
+
+if(CONTROL_TYPE STREQUAL "")
+    message(FATAL_ERROR
+        "CONTROL_TYPE was not provided. "
+        "Pass -DCONTROL_TYPE=<controller> to build_firmware.sh."
+    )
+endif()
+
+if(CONTROLLER_CONFIG_ROOT STREQUAL "")
+    message(FATAL_ERROR
+        "CONTROLLER_CONFIG_ROOT was not provided."
+    )
+endif()
+
+set(
+    SELECTED_CONTROLLER_DIRECTORY
+    "${CONTROLLER_CONFIG_ROOT}/${CONTROL_MODEL}"
+)
+
+set(SELECTED_CONTROLLER_SOURCES)
+set(ENABLED_CONTROLLER_IMPLEMENTATIONS)
+set(SELECTED_CONFIG_INCLUDES "")
+set(SELECTED_REGISTRATION_CALLS "")
+
+foreach(controller_name IN LISTS CONTROL_TYPE)
+    # Determine implementation type from instance name.
+    if(controller_name MATCHES "^lqr")
+        set(controller_implementation "lqr")
+    elseif(controller_name MATCHES "^pid")
+        set(controller_implementation "pid")
+    elseif(controller_name MATCHES "^test")
+        set(controller_implementation "test")
+    else()
+        message(FATAL_ERROR
+            "Cannot determine controller type from: "
+            "${controller_name}"
+        )
+    endif()
+
+    set(
+        controller_source
+        "${SELECTED_CONTROLLER_DIRECTORY}/${controller_name}_config.c"
+    )
+
+    set(
+        controller_header
+        "${SELECTED_CONTROLLER_DIRECTORY}/${controller_name}_config.h"
+    )
+
+    if(NOT EXISTS "${controller_source}")
+        message(FATAL_ERROR
+            "Missing controller source: ${controller_source}"
+        )
+    endif()
+
+    if(NOT EXISTS "${controller_header}")
+        message(FATAL_ERROR
+            "Missing controller header: ${controller_header}"
+        )
+    endif()
+
+    list(APPEND
+        SELECTED_CONTROLLER_SOURCES
+        "${controller_source}"
+    )
+
+    list(APPEND
+        ENABLED_CONTROLLER_IMPLEMENTATIONS
+        "${controller_implementation}"
+    )
+
+    string(APPEND
+        SELECTED_CONFIG_INCLUDES
+        "#include \"${controller_name}_config.h\"\n"
+    )
+
+    if(controller_implementation STREQUAL "lqr") #do we need one of these for each type of controller?
+        string(APPEND
+            SELECTED_REGISTRATION_CALLS
+            "    status = controller_register_lqr(\n"
+            "        \"${controller_name}\",\n"
+            "        ${CONTROL_MODEL}_${controller_name}_gain_matrix,\n"
+            "        ${CONTROL_MODEL}_${controller_name}_gain_rows,\n"
+            "        ${CONTROL_MODEL}_${controller_name}_gain_columns\n"
+            "    );\n"
+            "    if (status != CONTROLLER_STATUS_OK) {\n"
+            "        return status;\n"
+            "    }\n\n"
+        )
+    endif()
+endforeach()
+
+list(REMOVE_DUPLICATES
+    ENABLED_CONTROLLER_IMPLEMENTATIONS
+)
+
+foreach(implementation IN LISTS ENABLED_CONTROLLER_IMPLEMENTATIONS)
+    string(
+        TOUPPER
+        "${implementation}"
+        implementation_upper
+    )
+
+    target_compile_definitions(
+        app
+        PRIVATE
+        "CONTROLLER_${implementation_upper}_ENABLED=1"
+    )
+endforeach()
+
+set(
+    GENERATED_CONTROLLER_DIRECTORY
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
+
+file(MAKE_DIRECTORY
+    "${GENERATED_CONTROLLER_DIRECTORY}"
+)
+
+set(
+    GENERATED_SELECTED_CONTROLLERS_SOURCE
+    "${GENERATED_CONTROLLER_DIRECTORY}/selected_controllers.c"
+)
+
+file(WRITE
+    "${GENERATED_SELECTED_CONTROLLERS_SOURCE}"
+"#include \"controller/controllers.h\"
+
+${SELECTED_CONFIG_INCLUDES}
+
+controller_status_t selected_controllers_register(void)
+{
+    controller_status_t status;
+
+${SELECTED_REGISTRATION_CALLS}
+    return CONTROLLER_STATUS_OK;
+}
+"
+)
+set(
+    JOINT_FILTER_CONFIG_ROOT
+    ""
+    CACHE PATH
+    "Root directory containing generated joint-filter configurations"
+)
+
+if(JOINT_FILTER_CONFIG_ROOT STREQUAL "")
+    message(FATAL_ERROR
+        "JOINT_FILTER_CONFIG_ROOT was not provided."
+    )
+endif()
+
+set(
+    SELECTED_JOINT_FILTER_DIRECTORY
+    "${JOINT_FILTER_CONFIG_ROOT}/${CONTROL_MODEL}"
+)
+
+set(
+    SELECTED_JOINT_FILTER_SOURCE
+    "${SELECTED_JOINT_FILTER_DIRECTORY}/joint_filter_config.c"
+)
+
+set(
+    SELECTED_JOINT_FILTER_HEADER
+    "${SELECTED_JOINT_FILTER_DIRECTORY}/joint_filter_config.h"
+)
+
+if(NOT EXISTS "${SELECTED_JOINT_FILTER_SOURCE}")
+    message(FATAL_ERROR
+        "Joint-filter source does not exist: "
+        "${SELECTED_JOINT_FILTER_SOURCE}"
+    )
+endif()
+
+if(NOT EXISTS "${SELECTED_JOINT_FILTER_HEADER}")
+    message(FATAL_ERROR
+        "Joint-filter header does not exist: "
+        "${SELECTED_JOINT_FILTER_HEADER}"
+    )
+endif()
+
+target_sources(
+    app
+    PRIVATE
+    ${SELECTED_CONTROLLER_SOURCES}
+    "${GENERATED_SELECTED_CONTROLLERS_SOURCE}"
+    "${SELECTED_JOINT_FILTER_SOURCE}"
+)
+
+target_include_directories(
+    app
+    PRIVATE
+    "${SELECTED_CONTROLLER_DIRECTORY}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${SELECTED_JOINT_FILTER_DIRECTORY}"
+
+)
+
+
 set(microros_src_dir   ${MICRO_ROS_FIRMWARE_DIR}/zephyr_apps/microros_extensions)
 set(microros_build_dir ${MICRO_ROS_FIRMWARE_DIR}/build/microros_extensions)
 
